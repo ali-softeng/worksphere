@@ -1,4 +1,4 @@
 # WorkSphere
 
-Employee Management System
+Employee Management System - Main Branch
 Git branching practice
