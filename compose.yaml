@@ -1,8 +1,25 @@
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - frontend
+
+
   backend:
     build: .
-    ports:
-      - "8080:8080"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 10m
+        max-file: 3
+
     environment:
       SPRING_PROFILES_ACTIVE: docker
       DB_USERNAME: ${DB_USERNAME}
@@ -11,17 +28,28 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
 
+    networks:
+      - frontend
+      - backend
+
   worksphere-postgres:
-    image: postgres:17
+    image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: worksphere
     volumes:
       - worksphere-db-data:/var/lib/postgresql/data
+    networks:
+      - backend
 
 
 
 volumes:
   worksphere-db-data:
     external: true
+
+networks:
+  frontend:
+  backend:

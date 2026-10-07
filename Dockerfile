@@ -10,6 +10,10 @@ RUN mvn clean package -DskipTests
 
 FROM eclipse-temurin:17-jre
 
+RUN useradd --system worksphere
+
 COPY --from=build /app/target/worksphere-0.0.1-SNAPSHOT.jar /app/worksphere.jar
+
+USER worksphere
 
 CMD ["java", "-jar", "/app/worksphere.jar"]

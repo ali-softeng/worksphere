@@ -24,6 +24,7 @@ public class SecurityConfig {
         http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         http.authorizeHttpRequests(auth -> {
             auth.requestMatchers("/auth/register", "/auth/login","/auth/refresh","/auth/logout").permitAll();
+            auth.requestMatchers("/actuator/health").permitAll();
             auth.requestMatchers(HttpMethod.POST,"/employees").hasAnyRole("HR","ADMIN");
             auth.requestMatchers(HttpMethod.GET,"/employees").hasAnyRole("MANAGER","HR","ADMIN");
             auth.requestMatchers(HttpMethod.GET,"/employees/pending").hasAnyRole("HR","ADMIN");
