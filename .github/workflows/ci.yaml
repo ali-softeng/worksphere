@@ -8,6 +8,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: worksphere_ci
+          POSTGRES_PASSWORD: worksphere_ci
+          POSTGRES_DB: worksphere
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -20,4 +34,9 @@ jobs:
           distribution: 'temurin'
 
       - name: Build with Maven
+        env:
+          DEV_DB_USERNAME: worksphere_ci
+          DEV_DB_PASSWORD: worksphere_ci
+
         run: mvn clean package
+
