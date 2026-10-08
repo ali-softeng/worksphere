@@ -37,6 +37,7 @@ jobs:
         env:
           DEV_DB_USERNAME: worksphere_ci
           DEV_DB_PASSWORD: worksphere_ci
+          JWT_SECRET: ci-test-secret
 
         run: mvn clean package
 
