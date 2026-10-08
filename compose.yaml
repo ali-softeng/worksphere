@@ -43,6 +43,11 @@ services:
       - worksphere-db-data:/var/lib/postgresql/data
     networks:
       - backend
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d worksphere" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 
 
