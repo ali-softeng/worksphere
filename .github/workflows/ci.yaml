@@ -1,3 +1,4 @@
+
 name: WorkSphere CI
 
 on:
@@ -16,22 +17,41 @@ jobs:
       packages: write
 
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: worksphere_ci
-          POSTGRES_PASSWORD: worksphere_ci
-          POSTGRES_DB: worksphere
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start PostgreSQL
+        run: |
+          docker run -d \
+            --name worksphere-ci-postgres \
+            -e POSTGRES_USER=worksphere_ci \
+            -e POSTGRES_PASSWORD=worksphere_ci \
+            -e POSTGRES_DB=worksphere \
+            -p 5432:5432 \
+            --health-cmd="pg_isready -U worksphere_ci -d worksphere" \
+            --health-interval=5s \
+            --health-timeout=5s \
+            --health-retries=10 \
+            postgres:16
+
+          for i in {1..30}; do
+            status=$(docker inspect --format='{{.State.Health.Status}}' worksphere-ci-postgres)
+            if [ "$status" = "healthy" ]; then
+              echo "PostgreSQL is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs worksphere-ci-postgres
+          echo "PostgreSQL failed to become healthy"
+          exit 1
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -49,7 +69,6 @@ jobs:
           DEV_DB_USERNAME: worksphere_ci
           DEV_DB_PASSWORD: worksphere_ci
           JWT_SECRET: ci-test-secret
-
         run: mvn clean package
 
       - name: Log in to GitHub Container Registry
