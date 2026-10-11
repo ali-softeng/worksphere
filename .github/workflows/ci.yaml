@@ -122,3 +122,54 @@ jobs:
             -o IdentitiesOnly=yes \
             "$VM_USER@$VM_HOST" \
             "echo 'GitHub Actions SSH connection successful'"
+
+  deploy:
+    name: Deploy WorkSphere to Azure
+    needs: [build, deploy-ssh-test]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
+          VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          VM_HOST_KEY: ${{ secrets.AZURE_VM_HOST_KEY }}
+        run: |
+          set -eu
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/worksphere_deploy
+          chmod 600 ~/.ssh/worksphere_deploy
+
+          printf '%s %s\n' "$VM_HOST" "$VM_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Check Azure deployment target
+        env:
+          VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          VM_USER: ${{ secrets.AZURE_VM_USER }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -eu
+
+          ssh \
+            -i ~/.ssh/worksphere_deploy \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            "$VM_USER@$VM_HOST" \
+            "IMAGE_TAG='$IMAGE_TAG' bash -s" <<'REMOTE_SCRIPT'
+          set -eu
+
+          COMPOSE_FILE=/home/ali/worksphere-source/compose.yaml
+          ENV_FILE=/etc/worksphere/worksphere.env
+          IMAGE_NAME=ghcr.io/ali-softeng/worksphere
+
+          echo "Checking current WorkSphere services..."
+          sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
+
+          echo "Target image: $IMAGE_NAME:$IMAGE_TAG"
+          echo "Pre-deployment verification complete. No services were changed."
+          REMOTE_SCRIPT
