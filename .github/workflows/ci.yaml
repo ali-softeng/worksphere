@@ -166,6 +166,21 @@ jobs:
             scripts/deploy-azure.sh \
             "$VM_USER@$VM_HOST:/home/ali/deploy-azure.sh"
 
+      - name: Diagnose deployment script on Azure VM
+        env:
+          VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          VM_USER: ${{ secrets.AZURE_VM_USER }}
+        run: |
+          set -eu
+
+          ssh \
+            -i ~/.ssh/worksphere_deploy \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            "$VM_USER@$VM_HOST" \
+            "nl -ba /home/ali/deploy-azure.sh | sed -n '115,125p'"
+
       - name: Run deployment script
         env:
           VM_HOST: ${{ secrets.AZURE_VM_HOST }}
