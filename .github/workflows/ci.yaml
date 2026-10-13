@@ -195,4 +195,4 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o IdentitiesOnly=yes \
             "$VM_USER@$VM_HOST" \
-            "chmod 700 /home/ali/deploy-azure.sh && IMAGE_TAG='$IMAGE_TAG' bash /home/ali/deploy-azure.sh"
+            "chmod 700 /home/ali/deploy-azure.sh && bash -n /home/ali/deploy-azure.sh && IMAGE_TAG='$IMAGE_TAG' bash /home/ali/deploy-azure.sh"
