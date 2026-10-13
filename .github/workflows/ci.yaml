@@ -1,4 +1,4 @@
-```yaml
+
 name: WorkSphere CI
 
 on:
@@ -101,7 +101,6 @@ jobs:
           VM_HOST_KEY: ${{ secrets.AZURE_VM_HOST_KEY }}
         run: |
           set -eu
-
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
@@ -117,7 +116,6 @@ jobs:
           VM_USER: ${{ secrets.AZURE_VM_USER }}
         run: |
           set -eu
-
           ssh \
             -i ~/.ssh/worksphere_deploy \
             -o BatchMode=yes \
@@ -132,6 +130,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.AZURE_SSH_PRIVATE_KEY }}
@@ -139,7 +140,6 @@ jobs:
           VM_HOST_KEY: ${{ secrets.AZURE_VM_HOST_KEY }}
         run: |
           set -eu
-
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
@@ -149,7 +149,24 @@ jobs:
           printf '%s %s\n' "$VM_HOST" "$VM_HOST_KEY" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Deploy backend image with automatic rollback
+      - name: Copy deployment script to Azure VM
+        env:
+          VM_HOST: ${{ secrets.AZURE_VM_HOST }}
+          VM_USER: ${{ secrets.AZURE_VM_USER }}
+        run: |
+          set -eu
+
+          test -f scripts/deploy-azure.sh
+
+          scp \
+            -i ~/.ssh/worksphere_deploy \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            scripts/deploy-azure.sh \
+            "$VM_USER@$VM_HOST:/home/ali/deploy-azure.sh"
+
+      - name: Run deployment script
         env:
           VM_HOST: ${{ secrets.AZURE_VM_HOST }}
           VM_USER: ${{ secrets.AZURE_VM_USER }}
@@ -163,154 +180,4 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o IdentitiesOnly=yes \
             "$VM_USER@$VM_HOST" \
-            "IMAGE_TAG='$IMAGE_TAG' bash -s" <<'REMOTE_SCRIPT'
-          set -eu
-
-          COMPOSE_FILE=/home/ali/worksphere-source/compose.yaml
-          ENV_FILE=/etc/worksphere/worksphere.env
-          EXPECTED_IMAGE=ghcr.io/ali-softeng/worksphere
-
-          if ! printf '%s' "$IMAGE_TAG" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "ERROR: Invalid Docker image tag"
-            exit 1
-          fi
-
-          export WORKSPHERE_IMAGE_TAG="$IMAGE_TAG"
-
-          echo "Identifying the currently running backend..."
-
-          CURRENT_CONTAINER=$(sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-            --env-file "$ENV_FILE" \
-            -f "$COMPOSE_FILE" \
-            ps -q backend)
-
-          if [ -z "$CURRENT_CONTAINER" ]; then
-            echo "ERROR: No current backend container found. Deployment stopped."
-            exit 1
-          fi
-
-          CURRENT_IMAGE=$(sudo docker inspect \
-            --format='{{.Config.Image}}' \
-            "$CURRENT_CONTAINER")
-
-          case "$CURRENT_IMAGE" in
-            "$EXPECTED_IMAGE":*) ;;
-            *)
-              echo "ERROR: Current image does not match the expected WorkSphere image."
-              echo "Found: $CURRENT_IMAGE"
-              exit 1
-              ;;
-          esac
-
-          PREVIOUS_TAG=${CURRENT_IMAGE##*:}
-
-          if ! printf '%s' "$PREVIOUS_TAG" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "ERROR: Previous image tag is not a valid commit SHA."
-            echo "Found: $PREVIOUS_TAG"
-            exit 1
-          fi
-
-          echo "Current image tag: $PREVIOUS_TAG"
-          echo "Target image tag:  $IMAGE_TAG"
-
-          check_health() {
-            for i in $(seq 1 30); do
-              if HEALTH_RESPONSE=$(curl -fsS http://localhost/actuator/health 2>/dev/null) \
-                && printf '%s' "$HEALTH_RESPONSE" \
-                  | grep -Eq '"status"[[:space:]]*:[[:space:]]*"UP"'; then
-                return 0
-              fi
-
-              sleep 2
-            done
-
-            return 1
-          }
-
-          rollback() {
-            echo "Restoring previous backend image: $PREVIOUS_TAG"
-
-            export WORKSPHERE_IMAGE_TAG="$PREVIOUS_TAG"
-
-            if ! sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-              --env-file "$ENV_FILE" \
-              -f "$COMPOSE_FILE" \
-              up -d --no-deps backend; then
-              echo "ERROR: Rollback command failed."
-              sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-                --env-file "$ENV_FILE" \
-                -f "$COMPOSE_FILE" \
-                logs --tail=100 backend || true
-              return 1
-            fi
-
-            echo "Verifying health after rollback..."
-
-            if check_health; then
-              echo "Rollback successful. Previous backend is healthy."
-              return 0
-            fi
-
-            echo "ERROR: Previous backend did not pass the health check."
-            sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-              --env-file "$ENV_FILE" \
-              -f "$COMPOSE_FILE" \
-              logs --tail=100 backend || true
-
-            return 1
-          }
-
-          echo "Pulling the exact new backend image..."
-
-          if ! sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-            --env-file "$ENV_FILE" \
-            -f "$COMPOSE_FILE" \
-            pull backend; then
-            echo "ERROR: New image pull failed. Running backend was not intentionally changed."
-            exit 1
-          fi
-
-          echo "Deploying the new backend image..."
-
-          if ! sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-            --env-file "$ENV_FILE" \
-            -f "$COMPOSE_FILE" \
-            up -d --no-deps backend; then
-            echo "ERROR: Backend update command failed. Attempting rollback."
-
-            if rollback; then
-              echo "Previous release restored; this deployment failed."
-            else
-              echo "CRITICAL: Automatic rollback could not restore a healthy backend."
-            fi
-
-            exit 1
-          fi
-
-          echo "Checking the new backend health..."
-
-          if check_health; then
-            echo "SUCCESS: New WorkSphere backend is healthy."
-            echo "Deployed image tag: $IMAGE_TAG"
-            exit 0
-          fi
-
-          echo "ERROR: New backend failed its health check."
-
-          sudo --preserve-env=WORKSPHERE_IMAGE_TAG docker compose \
-            --env-file "$ENV_FILE" \
-            -f "$COMPOSE_FILE" \
-            logs --tail=100 backend || true
-
-          echo "Attempting automatic rollback..."
-
-          if rollback; then
-            echo "Previous release restored successfully."
-            echo "GitHub Actions will still report this deployment as failed."
-          else
-            echo "CRITICAL: Rollback failed. Manual investigation is required."
-          fi
-
-          exit 1
-          REMOTE_SCRIPT
-```
+            "chmod 700 /home/ali/deploy-azure.sh && IMAGE_TAG='$IMAGE_TAG' bash /home/ali/deploy-azure.sh"
